@@ -1,0 +1,4 @@
+Operation,Time
+readDataFromFile,58
+KernelExecutionMean,0.0516326
+writeDataToFile,150

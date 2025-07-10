@@ -295,6 +295,14 @@ void CLUEAlgo<T, NLAYERS>::resizeOutputContainers() {
   points_.followers.resize(points_.n);
   points_.clusterIndex.resize(points_.n, -1);
   points_.isSeed.resize(points_.n, 0);
+
+  cudaHostRegister(points_.rho.data(), points_.n * sizeof(float), cudaHostRegisterPortable or cudaHostRegisterMapped);
+  cudaHostRegister(points_.delta.data(), points_.n * sizeof(float), cudaHostRegisterPortable or cudaHostRegisterMapped);
+  cudaHostRegister(points_.nearestHigher.data(), points_.n * sizeof(int), cudaHostRegisterPortable or cudaHostRegisterMapped);
+  cudaHostRegister(points_.followers.data(), points_.n * sizeof(int*), cudaHostRegisterPortable or cudaHostRegisterMapped);
+  cudaHostRegister(points_.clusterIndex.data(), points_.n * sizeof(int), cudaHostRegisterPortable or cudaHostRegisterMapped);
+  cudaHostRegister(points_.isSeed.data(), points_.n * sizeof(uint8_t), cudaHostRegisterPortable or cudaHostRegisterMapped);
+
 }
 
 template <typename T, int NLAYERS>

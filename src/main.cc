@@ -54,6 +54,7 @@ pair<float, float> stats(const std::vector<float> &v) {
 }
 
 void printTimingReport(std::vector<float> &vals, int repeats,
+                       std::vector<std::pair<std::string, double>> &timings,
                        const std::string label = "SUMMARY ") {
   int precision = 2;
   float mean = 0.f;
@@ -68,12 +69,23 @@ void printTimingReport(std::vector<float> &vals, int repeats,
   std::cout << label << " 2 outliers(" << repeats << "/" << vals.size() << ") "
             << std::fixed << std::setprecision(precision) << mean << " +/- "
             << sigma << " [ms]" << std::endl;
+
+  if (label == "SUMMARY WorkDivByPoints:") {
+    
+    timings.emplace_back("KernelExecutionMean", mean);
+  }
 }
 
 void readDataFromFile(const std::string &inputFileName, std::vector<float> &x,
                       std::vector<float> &y, std::vector<int> &layer,
-                      std::vector<float> &weight) {
+                      std::vector<float> &weight, int capacity) {
   // make dummy layers
+
+  x.reserve(capacity);
+  y.reserve(capacity);
+  layer.reserve(capacity);
+  weight.reserve(capacity);
+
   for (int l = 0; l < NLAYERS; l++) {
     // open csv file
     std::ifstream iFile(inputFileName);
@@ -90,6 +102,13 @@ void readDataFromFile(const std::string &inputFileName, std::vector<float> &x,
     }
     iFile.close();
   }
+
+  cudaHostRegister(x.data(), x.size() * sizeof(float), cudaHostRegisterPortable or cudaHostRegisterMapped);
+  cudaHostRegister(y.data(), y.size() * sizeof(float), cudaHostRegisterPortable or cudaHostRegisterMapped);
+  cudaHostRegister(layer.data(), layer.size() * sizeof(int), cudaHostRegisterPortable or cudaHostRegisterMapped);
+  cudaHostRegister(weight.data(), weight.size() * sizeof(float), cudaHostRegisterPortable or cudaHostRegisterMapped);
+
+
 }
 
 std::string create_outputfileName(const std::string &inputFileName,
@@ -120,19 +139,36 @@ void mainRun(const std::string &inputFileName,
              const float rhoc, const float outlierDeltaFactor,
              const bool use_accelerator, const int repeats,
              const bool verbose) {
+  cudaFree(nullptr);
+
   //////////////////////////////
   // read toy data from csv file
   //////////////////////////////
+
+  unsigned int capacity = 1000000;
+
   std::cout << "Start to load input points" << std::endl;
+
+  std::vector<std::pair<std::string, double>> timings;
+
   std::vector<float> x;
   std::vector<float> y;
   std::vector<int> layer;
   std::vector<float> weight;
 
-  readDataFromFile(inputFileName, x, y, layer, weight);
   std::cout << "Finished loading input points" << std::endl;
   // Vector to perform some bread and butter analysis on the timing
   vector<float> vals;
+
+  auto begin = std::chrono::high_resolution_clock::now();
+
+  readDataFromFile(inputFileName, x, y, layer, weight, capacity);
+
+  auto end = std::chrono::high_resolution_clock::now();
+  
+  double time_read = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+
+  timings.emplace_back("readDataFromFile", time_read);
 
   //////////////////////////////
   // run CLUE algorithm
@@ -150,7 +186,9 @@ void mainRun(const std::string &inputFileName,
       // measure excution time of makeClusters
       auto start = std::chrono::high_resolution_clock::now();
       clueAlgo.makeClusters();
+      //clueAlgo.Sync();
       auto finish = std::chrono::high_resolution_clock::now();
+      clueAlgo.Sync();
       std::chrono::duration<double> elapsed = finish - start;
       std::cout << "Iteration " << r;
       std::cout << " | Elapsed time: " << elapsed.count() * 1000 << " ms\n";
@@ -160,10 +198,25 @@ void mainRun(const std::string &inputFileName,
       }
     }
 
-    printTimingReport(vals, repeats, "SUMMARY WorkDivByPoints:");
+    printTimingReport(vals, repeats, timings, "SUMMARY WorkDivByPoints:");
+
+    int device;
+    cudaGetDevice(&device);
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, device);
+
+    std::cout << "Current GPU: " << prop.name << std::endl;
+    
+    auto begin = std::chrono::high_resolution_clock::now();
 
     // output result to outputFileName. -1 means all points.
     clueAlgo.verboseResults(outputFileName, -1);
+
+    auto end = std::chrono::high_resolution_clock::now();
+
+    double time_write = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+
+    timings.emplace_back("writeDataToFile", time_write);
 
     std::cout << "Native CUDA Backend selected WorkDivByTile" << std::endl;
     CLUEAlgoGPU<TilesConstants, NLAYERS, WorkDivByTile> clueAlgoByTile(
@@ -177,6 +230,7 @@ void mainRun(const std::string &inputFileName,
       auto start = std::chrono::high_resolution_clock::now();
       clueAlgoByTile.makeClusters();
       auto finish = std::chrono::high_resolution_clock::now();
+      clueAlgoByTile.Sync();
       std::chrono::duration<double> elapsed = finish - start;
       std::cout << "Iteration " << r;
       std::cout << " | Elapsed time: " << elapsed.count() * 1000 << " ms\n";
@@ -186,7 +240,7 @@ void mainRun(const std::string &inputFileName,
       }
     }
 
-    printTimingReport(vals, repeats, "SUMMARY WorkDivByTile:");
+    printTimingReport(vals, repeats, timings, "SUMMARY WorkDivByTile:");
 
     // output result to outputFileName. -1 means all points.
     clueAlgoByTile.verboseResults(outputFileName, -1);
@@ -217,7 +271,7 @@ void mainRun(const std::string &inputFileName,
       }
     }
 
-    printTimingReport(vals, repeats, "SUMMARY Alpaka Backend:");
+    printTimingReport(vals, repeats, timings, "SUMMARY Alpaka Backend:");
 
     // output result to outputFileName. -1 means all points.
     clueAlgo.verboseResults(outputFileName, -1);
@@ -242,11 +296,24 @@ void mainRun(const std::string &inputFileName,
       }
     }
 
-    printTimingReport(vals, repeats, "SUMMARY Native CPU:");
+    printTimingReport(vals, repeats, timings, "SUMMARY Native CPU:");
     // output result to outputFileName. -1 means all points.
     if (verbose)
       clueAlgo.verboseResults(outputFileName, -1);
   }
+
+  std::ofstream results("results_classic.csv");
+  if (!results.is_open()) {
+    std::cerr << "Failed to open file.\n";
+    return;
+  }
+
+  results << "Operation,Time\n";
+  for (const auto& entry : timings) {
+      results << entry.first << "," << entry.second << "\n";
+  }
+
+  results.close();
 
   std::cout << "Finished running CLUE algorithm" << std::endl;
 } // end of testRun()

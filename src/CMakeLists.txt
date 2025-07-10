@@ -8,4 +8,4 @@ if(CMAKE_CUDA_COMPILER)
 endif(CMAKE_CUDA_COMPILER)
 
 # Native C++ CLUE and TBB CLUE using ALPAKA
-add_subdirectory(clue_tbb_alpaka)
+#add_subdirectory(clue_tbb_alpaka)

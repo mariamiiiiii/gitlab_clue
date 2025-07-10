@@ -68,6 +68,8 @@ class CLUEAlgoGPU : public CLUEAlgo<T, NLAYERS> {
   // public methods
   void makeClusters();  // overwrite base class
 
+  void Sync();
+
   // Bring base-class public variables into the scope of this template derived
   // class
   using CLUEAlgo<T, NLAYERS>::dc_;
@@ -151,6 +153,7 @@ class CLUEAlgoGPU : public CLUEAlgo<T, NLAYERS> {
 
   void copy_todevice() {
     // input variables
+
     CHECK_CUDA_ERROR(cudaMemcpyAsync(d_points.x, points_.p_x,
                                      sizeof(float) * points_.n,
                                      cudaMemcpyHostToDevice, stream_));
@@ -582,8 +585,14 @@ void CLUEAlgoGPU<T, NLAYERS, W>::makeClusters() {
   kernel_assign_clusters<<<gridSize_nseeds, blockSize, 0, stream_>>>(
       d_seeds, d_followers, d_points, points_.n);
 
-  copy_tohost();
-  CHECK_CUDA_ERROR(cudaStreamSynchronize(stream_));
-}
+      copy_tohost();
+      ///
+  }
+    
+    
+    template <typename T, int NLAYERS, typename W>
+    void CLUEAlgoGPU<T, NLAYERS, W>::Sync() {
+      CHECK_CUDA_ERROR(cudaStreamSynchronize(stream_));
+    }
 
 #endif
