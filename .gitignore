@@ -2,7 +2,6 @@
 spack*
 *.pyc
 *.root
-*.png
 *.pdf
 *.swp
 
