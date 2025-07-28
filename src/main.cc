@@ -192,7 +192,8 @@ void mainRun(const std::string &inputFileName,
              const float rhoc, const float outlierDeltaFactor,
              const bool use_accelerator, const int repeats,
              const bool verbose, char* argv[]) {
-  cudaFree(nullptr);
+
+   CHECK_CUDA_ERROR(cudaFree(nullptr));
 
   //////////////////////////////
   // read toy data from csv file
