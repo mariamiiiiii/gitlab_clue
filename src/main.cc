@@ -70,13 +70,6 @@ void printTimingReport(std::vector<float> &vals, int repeats,
             << std::fixed << std::setprecision(precision) << mean << " +/- "
             << sigma << " [ms]" << std::endl;
 
-  // if (label == "SUMMARY WorkDivByPoints submission times:") {
-  //   timings.emplace_back("kernelSubmissionMean", mean);
-  // }     
-  // else if (label == "SUMMARY WorkDivByPoints execution times:") {
-  //   timings.emplace_back("kernelExecutionMean", mean);
-  // }
-
   if (label == "SUMMARY WorkDivByPoints submission copy_to_device times:") {
     timings.emplace_back("SubmissionCopyToDevice", mean);
   }     
@@ -193,7 +186,7 @@ void mainRun(const std::string &inputFileName,
              const bool use_accelerator, const int repeats,
              const bool verbose, char* argv[]) {
 
-   CHECK_CUDA_ERROR(cudaFree(nullptr));
+  cudaFree(nullptr);
 
   //////////////////////////////
   // read toy data from csv file
@@ -218,10 +211,6 @@ void mainRun(const std::string &inputFileName,
   std::vector<uint8_t> isSeed;
 
   std::cout << "Finished loading input points" << std::endl;
-  // Vector to perform some bread and butter analysis on the timing
-  // vector<float> vals;
-  // vector<float> vals2;
-
 
   vector<float> vals;
   vector<float> vals2;
@@ -258,7 +247,6 @@ void mainRun(const std::string &inputFileName,
 
   float time_allocate_input_cpu = time_reserve + time_host_register;
 
-  
   //////////////////////////////
   // run CLUE algorithm
   //////////////////////////////
@@ -268,9 +256,6 @@ void mainRun(const std::string &inputFileName,
     std::cout << "Native CUDA Backend selected" << std::endl;
     CLUEAlgoGPU<TilesConstants, NLAYERS> clueAlgo(dc, rhoc, outlierDeltaFactor,
                                                   verbose);
-    // vals.clear();
-    // vals2.clear();
-
 
     vals.clear();
     vals2.clear();
@@ -314,30 +299,7 @@ void mainRun(const std::string &inputFileName,
     for (unsigned r = 0; r < repeats; r++) {
       if (!clueAlgo.setPoints(x.size(), &x[0], &y[0], &layer[0], &weight[0]))
         exit(EXIT_FAILURE);
-      // measure excution time of makeClusters
-    //   clueAlgo.Sync();
-    //   auto start = std::chrono::high_resolution_clock::now();
-    //   clueAlgo.makeClusters();
-    //   auto finish = std::chrono::high_resolution_clock::now();
-    //   clueAlgo.Sync();
-    //   auto finish2 = std::chrono::high_resolution_clock::now();
-    //   std::chrono::duration<float> submit = finish - start;
-    //   std::chrono::duration<float> execute = finish2 - start;
-    //   std::cout << "Iteration " << r;
-    //   std::cout << " | Submission time: " << submit.count() * 1000 << " ms\n";
-    //   std::cout << " | Execution time: " << execute.count() * 1000 << " ms\n";
-    //   // Skip first event
-    //   if (r != 0 or repeats == 1) {
-    //     vals.push_back(submit.count() * 1000);
-    //     vals2.push_back(execute.count() * 1000);
-    //   }
-    // }
-
-    // printTimingReport(vals, repeats, timings, "SUMMARY WorkDivByPoints execution times:");
-    // printTimingReport(vals2, repeats, timings, "SUMMARY WorkDivByPoints submission times:");
-
-
-        clueAlgo.Sync();
+      clueAlgo.Sync();
       auto start = std::chrono::high_resolution_clock::now();
       clueAlgo.copy_todevice();
       auto finish = std::chrono::high_resolution_clock::now();
@@ -435,64 +397,6 @@ void mainRun(const std::string &inputFileName,
 
     timings.emplace_back("freeOutputData", (time_free_output_cpu + time_free_output_gpu) * 1000); 
 
-
-//     std::cout << "Native CUDA Backend selected WorkDivByTile" << std::endl;
-//     CLUEAlgoGPU<TilesConstants, NLAYERS, WorkDivByTile> clueAlgoByTile(
-//         dc, rhoc, outlierDeltaFactor, verbose);
-//     vals.clear();
-//     for (unsigned r = 0; r < repeats; r++) {
-//       if (!clueAlgoByTile.setPoints(x.size(), &x[0], &y[0], &layer[0],
-//                                     &weight[0]))
-//         exit(EXIT_FAILURE);
-//       // measure excution time of makeClusters
-//       auto start = std::chrono::high_resolution_clock::now();
-//       clueAlgoByTile.makeClusters();
-//       auto finish = std::chrono::high_resolution_clock::now();
-//       clueAlgoByTile.Sync();
-//       std::chrono::duration<float> elapsed = finish - start;
-//       std::cout << "Iteration " << r;
-//       std::cout << " | Elapsed time: " << elapsed.count() * 1000 << " ms\n";
-//       // Skip first event
-//       if (r != 0 or repeats == 1) {
-//         vals.push_back(elapsed.count() * 1000);
-//       }
-//     }
-
-//     printTimingReport(vals, repeats, timings, "SUMMARY WorkDivByTile:");
-
-//     // output result to outputFileName. -1 means all points.
-//     clueAlgoByTile.verboseResults(outputFileName, -1);
-// #elif defined(USE_ALPAKA)
-//     std::cout << "ALPAKA 'Backend' selected" << std::endl;
-//     using namespace alpaka;
-//     // Define the index domain
-//     using Dim = alpaka::DimInt<1u>;
-//     using Idx = uint32_t;
-//     using Acc = SelectedAcc<Dim, Idx>;
-//     CLUEAlgoAlpaka<Acc, alpaka::Queue<Acc, alpaka::NonBlocking>, TilesConstants,
-//                    NLAYERS>
-//         clueAlgo(dc, rhoc, outlierDeltaFactor, verbose);
-//     vals.clear();
-//     for (unsigned r = 0; r < repeats; r++) {
-//       if (!clueAlgo.setPoints(x.size(), &x[0], &y[0], &layer[0], &weight[0]))
-//         exit(EXIT_FAILURE);
-//       // measure excution time of makeClusters
-//       auto start = std::chrono::high_resolution_clock::now();
-//       clueAlgo.makeClusters();
-//       auto finish = std::chrono::high_resolution_clock::now();
-//       std::chrono::duration<float> elapsed = finish - start;
-//       std::cout << "Iteration " << r;
-//       std::cout << " | Elapsed time: " << elapsed.count() * 1000 << " ms\n";
-//       // Skip first event
-//       if (r != 0 or repeats == 1) {
-//         vals.push_back(elapsed.count() * 1000);
-//       }
-//     }
-
-//     printTimingReport(vals, repeats, timings, "SUMMARY Alpaka Backend:");
-
-//     // output result to outputFileName. -1 means all points.
-//     clueAlgo.verboseResults(outputFileName, -1);
 #endif
   } else {
     std::cout << "Native CPU(serial) Backend selected" << std::endl;
