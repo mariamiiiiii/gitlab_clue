@@ -179,7 +179,7 @@ class CLUEAlgo {
     points_.p_layer = layer;
     points_.p_weight = weight;
 
-    resizeOutputContainers();
+    //resizeOutputContainers();
 
     return n;
   }
@@ -276,6 +276,8 @@ class CLUEAlgo {
   void verboseResults(const std::string& outputFileName = "cout",
                       const int nVerbose = -1) const;
 
+  void resizeOutputContainers(int size);
+
  private:
   // private member methods
   void prepareDataStructures(std::array<Tiles<T>, NLAYERS>&);
@@ -283,25 +285,24 @@ class CLUEAlgo {
   void calculateDistanceToHigher(std::array<Tiles<T>, NLAYERS>&);
   void findAndAssignClusters();
   inline float distance(int, int) const;
-  void resizeOutputContainers();
 };
 
 template <typename T, int NLAYERS>
-void CLUEAlgo<T, NLAYERS>::resizeOutputContainers() {
+void CLUEAlgo<T, NLAYERS>::resizeOutputContainers(int size) {
   // result variables
-  points_.rho.resize(points_.n, 0);
-  points_.delta.resize(points_.n, std::numeric_limits<float>::max());
-  points_.nearestHigher.resize(points_.n, std::numeric_limits<unsigned int>::max());
-  points_.followers.resize(points_.n);
-  points_.clusterIndex.resize(points_.n, -1);
-  points_.isSeed.resize(points_.n, 0);
+  points_.rho.resize(size, 0);
+  points_.delta.resize(size, std::numeric_limits<float>::max());
+  points_.nearestHigher.resize(size, std::numeric_limits<unsigned int>::max());
+  points_.followers.resize(size);
+  points_.clusterIndex.resize(size, -1);
+  points_.isSeed.resize(size, 0);
 
-  cudaHostRegister(points_.rho.data(), points_.n * sizeof(float), cudaHostRegisterPortable or cudaHostRegisterMapped);
-  cudaHostRegister(points_.delta.data(), points_.n * sizeof(float), cudaHostRegisterPortable or cudaHostRegisterMapped);
-  cudaHostRegister(points_.nearestHigher.data(), points_.n * sizeof(int), cudaHostRegisterPortable or cudaHostRegisterMapped);
-  cudaHostRegister(points_.followers.data(), points_.n * sizeof(int*), cudaHostRegisterPortable or cudaHostRegisterMapped);
-  cudaHostRegister(points_.clusterIndex.data(), points_.n * sizeof(int), cudaHostRegisterPortable or cudaHostRegisterMapped);
-  cudaHostRegister(points_.isSeed.data(), points_.n * sizeof(uint8_t), cudaHostRegisterPortable or cudaHostRegisterMapped);
+  // cudaHostRegister(points_.rho.data(), points_.n * sizeof(float), cudaHostRegisterPortable | cudaHostRegisterMapped);
+  // cudaHostRegister(points_.delta.data(), points_.n * sizeof(float), cudaHostRegisterPortable | cudaHostRegisterMapped);
+  // cudaHostRegister(points_.nearestHigher.data(), points_.n * sizeof(int), cudaHostRegisterPortable | cudaHostRegisterMapped);
+  // cudaHostRegister(points_.followers.data(), points_.n * sizeof(int*), cudaHostRegisterPortable | cudaHostRegisterMapped);
+  // cudaHostRegister(points_.clusterIndex.data(), points_.n * sizeof(int), cudaHostRegisterPortable | cudaHostRegisterMapped);
+  // cudaHostRegister(points_.isSeed.data(), points_.n * sizeof(uint8_t), cudaHostRegisterPortable | cudaHostRegisterMapped);
 
 }
 

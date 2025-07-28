@@ -54,7 +54,7 @@ pair<float, float> stats(const std::vector<float> &v) {
 }
 
 void printTimingReport(std::vector<float> &vals, int repeats,
-                       std::vector<std::pair<std::string, double>> &timings,
+                       std::vector<std::pair<std::string, float>> &timings,
                        const std::string label = "SUMMARY ") {
   int precision = 2;
   float mean = 0.f;
@@ -70,21 +70,47 @@ void printTimingReport(std::vector<float> &vals, int repeats,
             << std::fixed << std::setprecision(precision) << mean << " +/- "
             << sigma << " [ms]" << std::endl;
 
-  if (label == "SUMMARY WorkDivByPoints:") {
-    
-    timings.emplace_back("KernelExecutionMean", mean);
+  // if (label == "SUMMARY WorkDivByPoints submission times:") {
+  //   timings.emplace_back("kernelSubmissionMean", mean);
+  // }     
+  // else if (label == "SUMMARY WorkDivByPoints execution times:") {
+  //   timings.emplace_back("kernelExecutionMean", mean);
+  // }
+
+  if (label == "SUMMARY WorkDivByPoints submission copy_to_device times:") {
+    timings.emplace_back("SubmissionCopyToDevice", mean);
+  }     
+  else if (label == "SUMMARY WorkDivByPoints execution copy_to_device times:") {
+    timings.emplace_back("ExecutionCopyToDevice", mean);
+  }
+  else if (label == "SUMMARY WorkDivByPoints submission make_clusters times:") {
+    timings.emplace_back("SubmissionMakeClusters", mean);
+  }
+  else if (label == "SUMMARY WorkDivByPoints execution make_clusters times:") {
+    timings.emplace_back("ExecutionMakeClusters", mean);
+  }
+  else if (label == "SUMMARY WorkDivByPoints submission copy_to_host times:") {
+    timings.emplace_back("SubmissionCopyToHost", mean);
+  }
+  else if (label == "SUMMARY WorkDivByPoints execution copy_to_host times:") {
+    timings.emplace_back("ExecutionCopyToHost", mean);
   }
 }
 
-void readDataFromFile(const std::string &inputFileName, std::vector<float> &x,
-                      std::vector<float> &y, std::vector<int> &layer,
-                      std::vector<float> &weight, int capacity) {
-  // make dummy layers
-
+void reserveInputData(std::vector<float> &x, std::vector<float> &y,
+                std::vector<int> &layer, std::vector<float> &weight, 
+                int capacity) {
   x.reserve(capacity);
   y.reserve(capacity);
   layer.reserve(capacity);
   weight.reserve(capacity);
+}
+
+void readDataFromFile(const std::string &inputFileName, std::vector<float> &x,
+                      std::vector<float> &y, std::vector<int> &layer,
+                      std::vector<float> &weight, int capacity, int &size) {
+
+  int i = 0;
 
   for (int l = 0; l < NLAYERS; l++) {
     // open csv file
@@ -92,23 +118,50 @@ void readDataFromFile(const std::string &inputFileName, std::vector<float> &x,
     std::string value = "";
     // Iterate through each line and split the content using delimeter
     while (getline(iFile, value, ',')) {
-      x.push_back(std::stof(value));
-      getline(iFile, value, ',');
-      y.push_back(std::stof(value));
-      getline(iFile, value, ',');
-      layer.push_back(std::stoi(value) + l);
-      getline(iFile, value);
-      weight.push_back(std::stof(value));
+      if(i < capacity) {
+        x.push_back(std::stof(value));
+        getline(iFile, value, ',');
+        y.push_back(std::stof(value));
+        getline(iFile, value, ',');
+        layer.push_back(std::stoi(value) + l);
+        getline(iFile, value);
+        weight.push_back(std::stof(value));
+      }
+      else{
+        std::cerr << "Error: Capacity exceeded (" << capacity << "). Exiting..." << std::endl;
+        exit(EXIT_FAILURE);
+      }
+      i++;
     }
     iFile.close();
   }
+  size = i;
+}
 
-  cudaHostRegister(x.data(), x.size() * sizeof(float), cudaHostRegisterPortable or cudaHostRegisterMapped);
-  cudaHostRegister(y.data(), y.size() * sizeof(float), cudaHostRegisterPortable or cudaHostRegisterMapped);
-  cudaHostRegister(layer.data(), layer.size() * sizeof(int), cudaHostRegisterPortable or cudaHostRegisterMapped);
-  cudaHostRegister(weight.data(), weight.size() * sizeof(float), cudaHostRegisterPortable or cudaHostRegisterMapped);
+void hostRegisterData(std::vector<float> &x, std::vector<float> &y, 
+                      std::vector<int> &layer, std::vector<float> &weight) {
+  cudaHostRegister(x.data(), x.size() * sizeof(float), cudaHostRegisterPortable | cudaHostRegisterMapped);
+  cudaHostRegister(y.data(), y.size() * sizeof(float), cudaHostRegisterPortable | cudaHostRegisterMapped);
+  cudaHostRegister(layer.data(), layer.size() * sizeof(int), cudaHostRegisterPortable | cudaHostRegisterMapped);
+  cudaHostRegister(weight.data(), weight.size() * sizeof(float), cudaHostRegisterPortable | cudaHostRegisterMapped);
+}
 
+void freeInputData(std::vector<float> &x, std::vector<float> &y,
+                std::vector<int> &layer, std::vector<float> &weight) {
+  auto x_ = std::move(x);
+  auto y_ = std::move(y);
+  auto layer_ = std::move(layer);
+  auto weight_ = std::move(weight);
+}
 
+void freeOutputData(std::vector<float> &rho, std::vector<float> &delta,
+                std::vector<unsigned int> &nearestHigher, std::vector<int> &clusterIndex, 
+                std::vector<uint8_t> &isSeed) {
+  auto rho_ = std::move(rho);
+  auto delta_ = std::move(delta);
+  auto nearestHigher_ = std::move(nearestHigher);
+  auto clusterIndex_ = std::move(clusterIndex);
+  auto isSeed_ = std::move(isSeed);
 }
 
 std::string create_outputfileName(const std::string &inputFileName,
@@ -138,7 +191,7 @@ void mainRun(const std::string &inputFileName,
              const std::string &outputFileName, const float dc,
              const float rhoc, const float outlierDeltaFactor,
              const bool use_accelerator, const int repeats,
-             const bool verbose) {
+             const bool verbose, char* argv[]) {
   cudaFree(nullptr);
 
   //////////////////////////////
@@ -146,30 +199,65 @@ void mainRun(const std::string &inputFileName,
   //////////////////////////////
 
   unsigned int capacity = 1000000;
+  int size;
 
   std::cout << "Start to load input points" << std::endl;
 
-  std::vector<std::pair<std::string, double>> timings;
+  std::vector<std::pair<std::string, float>> timings;
 
   std::vector<float> x;
   std::vector<float> y;
   std::vector<int> layer;
   std::vector<float> weight;
 
+  std::vector<float> rho;
+  std::vector<float> delta;
+  std::vector<unsigned int> nearestHigher; 
+  std::vector<int> clusterIndex;
+  std::vector<uint8_t> isSeed;
+
   std::cout << "Finished loading input points" << std::endl;
   // Vector to perform some bread and butter analysis on the timing
+  // vector<float> vals;
+  // vector<float> vals2;
+
+
   vector<float> vals;
+  vector<float> vals2;
+  vector<float> vals3;
+  vector<float> vals4;
+  vector<float> vals5;
+  vector<float> vals6;
 
   auto begin = std::chrono::high_resolution_clock::now();
 
-  readDataFromFile(inputFileName, x, y, layer, weight, capacity);
+  reserveInputData(x, y, layer, weight, capacity);
 
   auto end = std::chrono::high_resolution_clock::now();
   
-  double time_read = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+  float time_reserve = std::chrono::duration<float>(end - begin).count();
 
-  timings.emplace_back("readDataFromFile", time_read);
+  begin = std::chrono::high_resolution_clock::now();
 
+  readDataFromFile(inputFileName, x, y, layer, weight, capacity, size);
+
+  end = std::chrono::high_resolution_clock::now();
+  
+  float time_read = std::chrono::duration<float>(end - begin).count();
+
+  timings.emplace_back("readDataFromFile", time_read * 1000);
+
+  begin = std::chrono::high_resolution_clock::now();
+
+  hostRegisterData(x, y, layer, weight);
+
+  end = std::chrono::high_resolution_clock::now();
+  
+  float time_host_register = std::chrono::duration<float>(end - begin).count();
+
+  float time_allocate_input_cpu = time_reserve + time_host_register;
+
+  
   //////////////////////////////
   // run CLUE algorithm
   //////////////////////////////
@@ -179,33 +267,121 @@ void mainRun(const std::string &inputFileName,
     std::cout << "Native CUDA Backend selected" << std::endl;
     CLUEAlgoGPU<TilesConstants, NLAYERS> clueAlgo(dc, rhoc, outlierDeltaFactor,
                                                   verbose);
+    // vals.clear();
+    // vals2.clear();
+
+
     vals.clear();
+    vals2.clear();
+    vals3.clear();
+    vals4.clear();
+    vals5.clear();
+    vals6.clear();
+
+    begin = std::chrono::high_resolution_clock::now();
+
+    clueAlgo.init_input_data();
+
+    clueAlgo.Sync();
+
+    end = std::chrono::high_resolution_clock::now();
+  
+    float time_allocate_input_gpu = std::chrono::duration<float>(end - begin).count();
+     
+    begin = std::chrono::high_resolution_clock::now();
+
+    clueAlgo.resizeOutputContainers(size);
+
+    end = std::chrono::high_resolution_clock::now();
+  
+    float time_allocate_output_cpu = std::chrono::duration<float>(end - begin).count();
+    
+    begin = std::chrono::high_resolution_clock::now();
+
+    clueAlgo.init_output_data();
+
+    clueAlgo.Sync();
+
+    end = std::chrono::high_resolution_clock::now();
+  
+    float time_allocate_output_gpu = std::chrono::duration<float>(end - begin).count();
+
+    timings.emplace_back("allocateInputData", (time_allocate_input_cpu + time_allocate_input_gpu) * 1000);
+
+    timings.emplace_back("allocateOutputData", (time_allocate_output_cpu + time_allocate_output_gpu) * 1000);
+
     for (unsigned r = 0; r < repeats; r++) {
       if (!clueAlgo.setPoints(x.size(), &x[0], &y[0], &layer[0], &weight[0]))
         exit(EXIT_FAILURE);
       // measure excution time of makeClusters
+    //   clueAlgo.Sync();
+    //   auto start = std::chrono::high_resolution_clock::now();
+    //   clueAlgo.makeClusters();
+    //   auto finish = std::chrono::high_resolution_clock::now();
+    //   clueAlgo.Sync();
+    //   auto finish2 = std::chrono::high_resolution_clock::now();
+    //   std::chrono::duration<float> submit = finish - start;
+    //   std::chrono::duration<float> execute = finish2 - start;
+    //   std::cout << "Iteration " << r;
+    //   std::cout << " | Submission time: " << submit.count() * 1000 << " ms\n";
+    //   std::cout << " | Execution time: " << execute.count() * 1000 << " ms\n";
+    //   // Skip first event
+    //   if (r != 0 or repeats == 1) {
+    //     vals.push_back(submit.count() * 1000);
+    //     vals2.push_back(execute.count() * 1000);
+    //   }
+    // }
+
+    // printTimingReport(vals, repeats, timings, "SUMMARY WorkDivByPoints execution times:");
+    // printTimingReport(vals2, repeats, timings, "SUMMARY WorkDivByPoints submission times:");
+
+
+        clueAlgo.Sync();
       auto start = std::chrono::high_resolution_clock::now();
-      clueAlgo.makeClusters();
-      //clueAlgo.Sync();
+      clueAlgo.copy_todevice();
       auto finish = std::chrono::high_resolution_clock::now();
       clueAlgo.Sync();
-      std::chrono::duration<double> elapsed = finish - start;
+      auto finish2 = std::chrono::high_resolution_clock::now();
+      std::chrono::duration<float> submit_copy_to_device = finish - start;
+      std::chrono::duration<float> execute_copy_to_device = finish2 - start;
+      start = std::chrono::high_resolution_clock::now();
+      clueAlgo.makeClusters(); //without size, i can get point_.n
+      finish = std::chrono::high_resolution_clock::now();
+      clueAlgo.Sync();
+      finish2 = std::chrono::high_resolution_clock::now();
+      std::chrono::duration<float> submit_make_clusters = finish - start;
+      std::chrono::duration<float> execute_make_clusters = finish2 - start;
+      start = std::chrono::high_resolution_clock::now();
+      clueAlgo.copy_tohost();
+      finish = std::chrono::high_resolution_clock::now();
+      clueAlgo.Sync();
+      finish2 = std::chrono::high_resolution_clock::now();
+      std::chrono::duration<float> submit_copy_to_host = finish - start;
+      std::chrono::duration<float> execute_copy_to_host = finish2 - start;
       std::cout << "Iteration " << r;
-      std::cout << " | Elapsed time: " << elapsed.count() * 1000 << " ms\n";
+      std::cout << " | Submission time copy_to_device: " << submit_copy_to_device.count() * 1000 << " ms\n";
+      std::cout << " | Execution time copy_to_device: " << execute_copy_to_device.count() * 1000 << " ms\n";
+      std::cout << " | Submission time make_clusters: " << submit_make_clusters.count() * 1000 << " ms\n";
+      std::cout << " | Execution time make_clusters: " << execute_make_clusters.count() * 1000 << " ms\n";
+      std::cout << " | Submission time copy_to_host: " << submit_copy_to_host.count() * 1000 << " ms\n";
+      std::cout << " | Execution time copy_to_host: " << execute_copy_to_host.count() * 1000 << " ms\n";
       // Skip first event
       if (r != 0 or repeats == 1) {
-        vals.push_back(elapsed.count() * 1000);
+        vals.push_back(submit_copy_to_device.count() * 1000);
+        vals2.push_back(execute_copy_to_device.count() * 1000);
+        vals3.push_back(submit_make_clusters.count() * 1000);
+        vals4.push_back(execute_make_clusters.count() * 1000);
+        vals5.push_back(submit_copy_to_host.count() * 1000);
+        vals6.push_back(execute_copy_to_host.count() * 1000);
       }
     }
 
-    printTimingReport(vals, repeats, timings, "SUMMARY WorkDivByPoints:");
-
-    int device;
-    cudaGetDevice(&device);
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, device);
-
-    std::cout << "Current GPU: " << prop.name << std::endl;
+    printTimingReport(vals, repeats, timings, "SUMMARY WorkDivByPoints submission copy_to_device times:");
+    printTimingReport(vals2, repeats, timings, "SUMMARY WorkDivByPoints execution copy_to_device times:");
+    printTimingReport(vals3, repeats, timings, "SUMMARY WorkDivByPoints submission make_clusters times:");
+    printTimingReport(vals4, repeats, timings, "SUMMARY WorkDivByPoints execution make_clusters times:");
+    printTimingReport(vals5, repeats, timings, "SUMMARY WorkDivByPoints submission copy_to_host times:");
+    printTimingReport(vals6, repeats, timings, "SUMMARY WorkDivByPoints execution copy_to_host times:");
     
     auto begin = std::chrono::high_resolution_clock::now();
 
@@ -214,67 +390,108 @@ void mainRun(const std::string &inputFileName,
 
     auto end = std::chrono::high_resolution_clock::now();
 
-    double time_write = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+    float time_write = std::chrono::duration<float>(end - begin).count();
 
-    timings.emplace_back("writeDataToFile", time_write);
+    timings.emplace_back("writeDataToFile", time_write * 1000);
 
-    std::cout << "Native CUDA Backend selected WorkDivByTile" << std::endl;
-    CLUEAlgoGPU<TilesConstants, NLAYERS, WorkDivByTile> clueAlgoByTile(
-        dc, rhoc, outlierDeltaFactor, verbose);
-    vals.clear();
-    for (unsigned r = 0; r < repeats; r++) {
-      if (!clueAlgoByTile.setPoints(x.size(), &x[0], &y[0], &layer[0],
-                                    &weight[0]))
-        exit(EXIT_FAILURE);
-      // measure excution time of makeClusters
-      auto start = std::chrono::high_resolution_clock::now();
-      clueAlgoByTile.makeClusters();
-      auto finish = std::chrono::high_resolution_clock::now();
-      clueAlgoByTile.Sync();
-      std::chrono::duration<double> elapsed = finish - start;
-      std::cout << "Iteration " << r;
-      std::cout << " | Elapsed time: " << elapsed.count() * 1000 << " ms\n";
-      // Skip first event
-      if (r != 0 or repeats == 1) {
-        vals.push_back(elapsed.count() * 1000);
-      }
-    }
+    begin = std::chrono::high_resolution_clock::now();
+    
+    clueAlgo.free_input_data();
 
-    printTimingReport(vals, repeats, timings, "SUMMARY WorkDivByTile:");
+    clueAlgo.Sync();
+    
+    end = std::chrono::high_resolution_clock::now();
 
-    // output result to outputFileName. -1 means all points.
-    clueAlgoByTile.verboseResults(outputFileName, -1);
-#elif defined(USE_ALPAKA)
-    std::cout << "ALPAKA 'Backend' selected" << std::endl;
-    using namespace alpaka;
-    // Define the index domain
-    using Dim = alpaka::DimInt<1u>;
-    using Idx = uint32_t;
-    using Acc = SelectedAcc<Dim, Idx>;
-    CLUEAlgoAlpaka<Acc, alpaka::Queue<Acc, alpaka::NonBlocking>, TilesConstants,
-                   NLAYERS>
-        clueAlgo(dc, rhoc, outlierDeltaFactor, verbose);
-    vals.clear();
-    for (unsigned r = 0; r < repeats; r++) {
-      if (!clueAlgo.setPoints(x.size(), &x[0], &y[0], &layer[0], &weight[0]))
-        exit(EXIT_FAILURE);
-      // measure excution time of makeClusters
-      auto start = std::chrono::high_resolution_clock::now();
-      clueAlgo.makeClusters();
-      auto finish = std::chrono::high_resolution_clock::now();
-      std::chrono::duration<double> elapsed = finish - start;
-      std::cout << "Iteration " << r;
-      std::cout << " | Elapsed time: " << elapsed.count() * 1000 << " ms\n";
-      // Skip first event
-      if (r != 0 or repeats == 1) {
-        vals.push_back(elapsed.count() * 1000);
-      }
-    }
+    float time_free_input_gpu = std::chrono::duration<float>(end - begin).count();
 
-    printTimingReport(vals, repeats, timings, "SUMMARY Alpaka Backend:");
+    begin = std::chrono::high_resolution_clock::now();
+    
+    clueAlgo.free_output_data();
 
-    // output result to outputFileName. -1 means all points.
-    clueAlgo.verboseResults(outputFileName, -1);
+    clueAlgo.Sync();
+
+    end = std::chrono::high_resolution_clock::now();
+
+    float time_free_output_gpu = std::chrono::duration<float>(end - begin).count();
+
+    begin = std::chrono::high_resolution_clock::now();
+    
+    freeInputData(x, y, layer, weight);
+
+    end = std::chrono::high_resolution_clock::now();
+
+    float time_free_input_cpu = std::chrono::duration<float>(end - begin).count();
+    
+    begin = std::chrono::high_resolution_clock::now();
+    
+    freeOutputData(rho, delta, nearestHigher, clusterIndex, isSeed);
+
+    end = std::chrono::high_resolution_clock::now();
+
+    float time_free_output_cpu = std::chrono::duration<float>(end - begin).count();
+
+    timings.emplace_back("freeInputData", (time_free_input_cpu + time_free_input_gpu) * 1000); 
+
+    timings.emplace_back("freeOutputData", (time_free_output_cpu + time_free_output_gpu) * 1000); 
+
+
+//     std::cout << "Native CUDA Backend selected WorkDivByTile" << std::endl;
+//     CLUEAlgoGPU<TilesConstants, NLAYERS, WorkDivByTile> clueAlgoByTile(
+//         dc, rhoc, outlierDeltaFactor, verbose);
+//     vals.clear();
+//     for (unsigned r = 0; r < repeats; r++) {
+//       if (!clueAlgoByTile.setPoints(x.size(), &x[0], &y[0], &layer[0],
+//                                     &weight[0]))
+//         exit(EXIT_FAILURE);
+//       // measure excution time of makeClusters
+//       auto start = std::chrono::high_resolution_clock::now();
+//       clueAlgoByTile.makeClusters();
+//       auto finish = std::chrono::high_resolution_clock::now();
+//       clueAlgoByTile.Sync();
+//       std::chrono::duration<float> elapsed = finish - start;
+//       std::cout << "Iteration " << r;
+//       std::cout << " | Elapsed time: " << elapsed.count() * 1000 << " ms\n";
+//       // Skip first event
+//       if (r != 0 or repeats == 1) {
+//         vals.push_back(elapsed.count() * 1000);
+//       }
+//     }
+
+//     printTimingReport(vals, repeats, timings, "SUMMARY WorkDivByTile:");
+
+//     // output result to outputFileName. -1 means all points.
+//     clueAlgoByTile.verboseResults(outputFileName, -1);
+// #elif defined(USE_ALPAKA)
+//     std::cout << "ALPAKA 'Backend' selected" << std::endl;
+//     using namespace alpaka;
+//     // Define the index domain
+//     using Dim = alpaka::DimInt<1u>;
+//     using Idx = uint32_t;
+//     using Acc = SelectedAcc<Dim, Idx>;
+//     CLUEAlgoAlpaka<Acc, alpaka::Queue<Acc, alpaka::NonBlocking>, TilesConstants,
+//                    NLAYERS>
+//         clueAlgo(dc, rhoc, outlierDeltaFactor, verbose);
+//     vals.clear();
+//     for (unsigned r = 0; r < repeats; r++) {
+//       if (!clueAlgo.setPoints(x.size(), &x[0], &y[0], &layer[0], &weight[0]))
+//         exit(EXIT_FAILURE);
+//       // measure excution time of makeClusters
+//       auto start = std::chrono::high_resolution_clock::now();
+//       clueAlgo.makeClusters();
+//       auto finish = std::chrono::high_resolution_clock::now();
+//       std::chrono::duration<float> elapsed = finish - start;
+//       std::cout << "Iteration " << r;
+//       std::cout << " | Elapsed time: " << elapsed.count() * 1000 << " ms\n";
+//       // Skip first event
+//       if (r != 0 or repeats == 1) {
+//         vals.push_back(elapsed.count() * 1000);
+//       }
+//     }
+
+//     printTimingReport(vals, repeats, timings, "SUMMARY Alpaka Backend:");
+
+//     // output result to outputFileName. -1 means all points.
+//     clueAlgo.verboseResults(outputFileName, -1);
 #endif
   } else {
     std::cout << "Native CPU(serial) Backend selected" << std::endl;
@@ -288,7 +505,7 @@ void mainRun(const std::string &inputFileName,
       auto start = std::chrono::high_resolution_clock::now();
       clueAlgo.makeClusters();
       auto finish = std::chrono::high_resolution_clock::now();
-      std::chrono::duration<double> elapsed = finish - start;
+      std::chrono::duration<float> elapsed = finish - start;
       std::cout << "Elapsed time: " << elapsed.count() * 1000 << " ms\n";
       // Skip first event
       if (r != 0 or repeats == 1) {
@@ -302,7 +519,10 @@ void mainRun(const std::string &inputFileName,
       clueAlgo.verboseResults(outputFileName, -1);
   }
 
-  std::ofstream results("results_classic.csv");
+  std::string run_number = argv[13];
+  std::string filename = "Results/results_classic" + run_number + ".csv";
+
+  std::ofstream results(filename);
   if (!results.is_open()) {
     std::cerr << "Failed to open file.\n";
     return;
@@ -392,7 +612,7 @@ int main(int argc, char *argv[]) {
   // MARK -- test run
   //////////////////////////////
   mainRun(inputFileName, outputFileName, dc, rhoc, outlierDeltaFactor,
-          use_accelerator, repeats, verbose);
+          use_accelerator, repeats, verbose, argv);
 
   return 0;
 }

@@ -60,13 +60,103 @@ class CLUEAlgoGPU : public CLUEAlgo<T, NLAYERS> {
   // constructor
   CLUEAlgoGPU(float dc, float rhoc, float outlierDeltaFactor, bool verbose, bool useAbsoluteSigma=false)
       : CLUEAlgo<T, NLAYERS>(dc, rhoc, outlierDeltaFactor, verbose, useAbsoluteSigma) {
-    init_device();
+    init_internal_data();
   }
   // destructor
-  ~CLUEAlgoGPU() { free_device(); }
+  ~CLUEAlgoGPU() { free_internal_data(); }
 
   // public methods
+
+  void init_input_data() {
+    unsigned int reserve = 1000000;
+    CHECK_CUDA_ERROR(
+        cudaMallocAsync(&d_points.x, sizeof(float) * reserve, stream_));
+    CHECK_CUDA_ERROR(
+        cudaMallocAsync(&d_points.y, sizeof(float) * reserve, stream_));
+    CHECK_CUDA_ERROR(
+        cudaMallocAsync(&d_points.layer, sizeof(int) * reserve, stream_));
+    CHECK_CUDA_ERROR(
+        cudaMallocAsync(&d_points.weight, sizeof(float) * reserve, stream_));
+    if (useAbsoluteSigma_)
+      CHECK_CUDA_ERROR(
+          cudaMallocAsync(&d_points.sigmaNoise, sizeof(float) * reserve, stream_));
+  }
+
+  void init_output_data() { 
+    unsigned int reserve = 1000000;
+    CHECK_CUDA_ERROR(
+        cudaMallocAsync(&d_points.rho, sizeof(float) * reserve, stream_));
+    CHECK_CUDA_ERROR(
+        cudaMallocAsync(&d_points.delta, sizeof(float) * reserve, stream_));
+    CHECK_CUDA_ERROR(cudaMallocAsync(&d_points.nearestHigher,
+                                     sizeof(int) * reserve, stream_));
+    CHECK_CUDA_ERROR(cudaMallocAsync(&d_points.clusterIndex,
+                                     sizeof(int) * reserve, stream_));
+    CHECK_CUDA_ERROR(
+        cudaMallocAsync(&d_points.isSeed, sizeof(uint8_t) * reserve, stream_));
+  }
+
+  void copy_todevice() {
+    // input variables
+
+    CHECK_CUDA_ERROR(cudaMemcpyAsync(d_points.x, points_.p_x,
+                                     sizeof(float) * points_.n,
+                                     cudaMemcpyHostToDevice, stream_));
+    CHECK_CUDA_ERROR(cudaMemcpyAsync(d_points.y, points_.p_y,
+                                     sizeof(float) * points_.n,
+                                     cudaMemcpyHostToDevice, stream_));
+    CHECK_CUDA_ERROR(cudaMemcpyAsync(d_points.layer, points_.p_layer,
+                                     sizeof(int) * points_.n,
+                                     cudaMemcpyHostToDevice, stream_));
+    CHECK_CUDA_ERROR(cudaMemcpyAsync(d_points.weight, points_.p_weight,
+                                     sizeof(float) * points_.n,
+                                     cudaMemcpyHostToDevice, stream_));
+    if (useAbsoluteSigma_)
+      CHECK_CUDA_ERROR(cudaMemcpyAsync(d_points.sigmaNoise, points_.p_sigmaNoise,
+                                       sizeof(float) * points_.n,
+                                       cudaMemcpyHostToDevice, stream_));
+  }
+
+  void copy_tohost() {
+    // result variables
+    CHECK_CUDA_ERROR(cudaMemcpyAsync(
+        points_.clusterIndex.data(), d_points.clusterIndex,
+        sizeof(int) * points_.n, cudaMemcpyDeviceToHost, stream_));
+    if (verbose_) {
+      // other variables, copy only when verbose_==True
+      CHECK_CUDA_ERROR(cudaMemcpyAsync(points_.rho.data(), d_points.rho,
+                                       sizeof(float) * points_.n,
+                                       cudaMemcpyDeviceToHost, stream_));
+      CHECK_CUDA_ERROR(cudaMemcpyAsync(points_.delta.data(), d_points.delta,
+                                       sizeof(float) * points_.n,
+                                       cudaMemcpyDeviceToHost, stream_));
+      CHECK_CUDA_ERROR(cudaMemcpyAsync(
+          points_.nearestHigher.data(), d_points.nearestHigher,
+          sizeof(int) * points_.n, cudaMemcpyDeviceToHost, stream_));
+      CHECK_CUDA_ERROR(cudaMemcpyAsync(points_.isSeed.data(), d_points.isSeed,
+                                       sizeof(uint8_t) * points_.n,
+                                       cudaMemcpyDeviceToHost, stream_));
+    }
+  }
+
   void makeClusters();  // overwrite base class
+
+  void free_input_data() {
+    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.x, stream_));
+    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.y, stream_));
+    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.layer, stream_));
+    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.weight, stream_));
+    if (useAbsoluteSigma_)
+      CHECK_CUDA_ERROR(cudaFreeAsync(d_points.sigmaNoise, stream_));
+  }
+
+  void free_output_data() {
+    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.rho, stream_));
+    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.delta, stream_));
+    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.nearestHigher, stream_));
+    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.clusterIndex, stream_));
+    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.isSeed, stream_));
+  }
 
   void Sync();
 
@@ -91,35 +181,12 @@ class CLUEAlgoGPU : public CLUEAlgo<T, NLAYERS> {
   GPU::VecArray<int, maxNFollowers> *d_followers;
 
   // private methods
-  void init_device() {
+  void init_internal_data() {
     // Create our own cuda stream
     CHECK_CUDA_ERROR(cudaStreamCreate(&stream_));
-    // Allocate memory
+
     unsigned int reserve = 1000000;
-    // input variables
-    CHECK_CUDA_ERROR(
-        cudaMallocAsync(&d_points.x, sizeof(float) * reserve, stream_));
-    CHECK_CUDA_ERROR(
-        cudaMallocAsync(&d_points.y, sizeof(float) * reserve, stream_));
-    CHECK_CUDA_ERROR(
-        cudaMallocAsync(&d_points.layer, sizeof(int) * reserve, stream_));
-    CHECK_CUDA_ERROR(
-        cudaMallocAsync(&d_points.weight, sizeof(float) * reserve, stream_));
-    if (useAbsoluteSigma_)
-      CHECK_CUDA_ERROR(
-          cudaMallocAsync(&d_points.sigmaNoise, sizeof(float) * reserve, stream_));
-    // result variables
-    CHECK_CUDA_ERROR(
-        cudaMallocAsync(&d_points.rho, sizeof(float) * reserve, stream_));
-    CHECK_CUDA_ERROR(
-        cudaMallocAsync(&d_points.delta, sizeof(float) * reserve, stream_));
-    CHECK_CUDA_ERROR(cudaMallocAsync(&d_points.nearestHigher,
-                                     sizeof(int) * reserve, stream_));
-    CHECK_CUDA_ERROR(cudaMallocAsync(&d_points.clusterIndex,
-                                     sizeof(int) * reserve, stream_));
-    CHECK_CUDA_ERROR(
-        cudaMallocAsync(&d_points.isSeed, sizeof(uint8_t) * reserve, stream_));
-    // algorithm internal variables
+   
     CHECK_CUDA_ERROR(
         cudaMallocAsync(&d_hist, sizeof(TilesGPU<T>) * NLAYERS, stream_));
     CHECK_CUDA_ERROR(cudaMallocAsync(
@@ -128,48 +195,13 @@ class CLUEAlgoGPU : public CLUEAlgo<T, NLAYERS> {
         &d_followers, sizeof(GPU::VecArray<int, maxNFollowers>) * reserve,
         stream_));
   }
-
-  void free_device() {
-    // input variables
-    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.x, stream_));
-    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.y, stream_));
-    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.layer, stream_));
-    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.weight, stream_));
-    if (useAbsoluteSigma_)
-      CHECK_CUDA_ERROR(cudaFreeAsync(d_points.sigmaNoise, stream_));
-    // result variables
-    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.rho, stream_));
-    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.delta, stream_));
-    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.nearestHigher, stream_));
-    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.clusterIndex, stream_));
-    CHECK_CUDA_ERROR(cudaFreeAsync(d_points.isSeed, stream_));
-    // algorithm internal variables
+  
+  void free_internal_data() {
     CHECK_CUDA_ERROR(cudaFreeAsync(d_hist, stream_));
     CHECK_CUDA_ERROR(cudaFreeAsync(d_seeds, stream_));
     CHECK_CUDA_ERROR(cudaFreeAsync(d_followers, stream_));
 
     CHECK_CUDA_ERROR(cudaStreamDestroy(stream_));
-  }
-
-  void copy_todevice() {
-    // input variables
-
-    CHECK_CUDA_ERROR(cudaMemcpyAsync(d_points.x, points_.p_x,
-                                     sizeof(float) * points_.n,
-                                     cudaMemcpyHostToDevice, stream_));
-    CHECK_CUDA_ERROR(cudaMemcpyAsync(d_points.y, points_.p_y,
-                                     sizeof(float) * points_.n,
-                                     cudaMemcpyHostToDevice, stream_));
-    CHECK_CUDA_ERROR(cudaMemcpyAsync(d_points.layer, points_.p_layer,
-                                     sizeof(int) * points_.n,
-                                     cudaMemcpyHostToDevice, stream_));
-    CHECK_CUDA_ERROR(cudaMemcpyAsync(d_points.weight, points_.p_weight,
-                                     sizeof(float) * points_.n,
-                                     cudaMemcpyHostToDevice, stream_));
-    if (useAbsoluteSigma_)
-      CHECK_CUDA_ERROR(cudaMemcpyAsync(d_points.sigmaNoise, points_.p_sigmaNoise,
-                                       sizeof(float) * points_.n,
-                                       cudaMemcpyHostToDevice, stream_));
   }
 
   void clear_internal_buffers() {
@@ -192,28 +224,6 @@ class CLUEAlgoGPU : public CLUEAlgo<T, NLAYERS> {
     CHECK_CUDA_ERROR(cudaMemsetAsync(
         d_followers, 0x00,
         sizeof(GPU::VecArray<int, maxNFollowers>) * points_.n, stream_));
-  }
-
-  void copy_tohost() {
-    // result variables
-    CHECK_CUDA_ERROR(cudaMemcpyAsync(
-        points_.clusterIndex.data(), d_points.clusterIndex,
-        sizeof(int) * points_.n, cudaMemcpyDeviceToHost, stream_));
-    if (verbose_) {
-      // other variables, copy only when verbose_==True
-      CHECK_CUDA_ERROR(cudaMemcpyAsync(points_.rho.data(), d_points.rho,
-                                       sizeof(float) * points_.n,
-                                       cudaMemcpyDeviceToHost, stream_));
-      CHECK_CUDA_ERROR(cudaMemcpyAsync(points_.delta.data(), d_points.delta,
-                                       sizeof(float) * points_.n,
-                                       cudaMemcpyDeviceToHost, stream_));
-      CHECK_CUDA_ERROR(cudaMemcpyAsync(
-          points_.nearestHigher.data(), d_points.nearestHigher,
-          sizeof(int) * points_.n, cudaMemcpyDeviceToHost, stream_));
-      CHECK_CUDA_ERROR(cudaMemcpyAsync(points_.isSeed.data(), d_points.isSeed,
-                                       sizeof(uint8_t) * points_.n,
-                                       cudaMemcpyDeviceToHost, stream_));
-    }
   }
 
   // #endif // __CUDACC__
@@ -539,7 +549,7 @@ __global__ void kernel_assign_clusters(
 
 template <typename T, int NLAYERS, typename W>
 void CLUEAlgoGPU<T, NLAYERS, W>::makeClusters() {
-  copy_todevice();
+  //copy_todevice();
   clear_internal_buffers();
 
   ////////////////////////////////////////////
@@ -585,8 +595,8 @@ void CLUEAlgoGPU<T, NLAYERS, W>::makeClusters() {
   kernel_assign_clusters<<<gridSize_nseeds, blockSize, 0, stream_>>>(
       d_seeds, d_followers, d_points, points_.n);
 
-      copy_tohost();
-      ///
+  //copy_tohost();
+  ///
   }
     
     
