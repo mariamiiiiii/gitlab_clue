@@ -300,8 +300,8 @@ void mainRun(const std::string &inputFileName,
       }
     }
 
-    printTimingReport(vals, repeats, timings, "SUMMARY WorkDivByPoints execution times:");
-    printTimingReport(vals2, repeats, timings, "SUMMARY WorkDivByPoints submission times:");
+    printTimingReport(vals, repeats, timings, "SUMMARY WorkDivByPoints submission times:");
+    printTimingReport(vals2, repeats, timings, "SUMMARY WorkDivByPoints execution times:");
 
     auto begin = std::chrono::high_resolution_clock::now();
 
