@@ -6,8 +6,7 @@
 #include <cstdint>
 #include <memory>
 // GPU Add
-#include <cuda.h>
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 #include "GPUVecArray.h"
 #include "TilesConstants.h"

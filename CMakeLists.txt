@@ -1,3 +1,18 @@
+# ------------------------------------------------------------------
+# LUMI IMPLEMENTATION BEGIN
+# ------------------------------------------------------------------
+
+# ------------------------------------------------------------------
+# GPU backend:  "CUDA" (default), "HIP", or "NONE"
+# ------------------------------------------------------------------
+set(GPU_BACKEND "HIP" CACHE STRING "GPU backend to use (CUDA|HIP|NONE)")
+set_property(CACHE GPU_BACKEND PROPERTY STRINGS CUDA HIP NONE)
+string(TOUPPER "${GPU_BACKEND}" GPU_BACKEND)
+
+# ------------------------------------------------------------------
+# LUMI IMPLEMENTATION END
+# ------------------------------------------------------------------
+
 cmake_minimum_required(VERSION 3.8)
 
 project(
@@ -7,7 +22,7 @@ project(
   LANGUAGES CXX)
 
 # Location of the ALPAKA
-set(ALPAKA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/alpaka CACHE PATH "Path to ALPAKA (by default: submodule)")
+# set(ALPAKA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/alpaka CACHE PATH "Path to ALPAKA (by default: submodule)")
 
 # Location of TBB
 #set(TBB_DIR "/cvmfs/cms.cern.ch/slc7_amd64_gcc820/external/tbb/2020_U2-ghbfee/cmake/TBB/")
@@ -16,19 +31,78 @@ set(ALPAKA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/alpaka CACHE PATH "Path to ALPAKA (by
 set(CMAKE_VERBOSE_MAKEFILE OFF)
 
 # Check for CUDA
+# include(CheckLanguage)
+# check_language(CUDA)
+# if(CMAKE_CUDA_COMPILER)
+#   enable_language(CUDA)
+#   set(CMAKE_CXX_STANDARD 17)
+#   set(CMAKE_CUDA_ARCHITECTURES "60;70;75")
+# else()
+#   message(STATUS "No CUDA compiler found. Still, you can run the C++ version!")
+# endif()
+
+# if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+#   set (CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_LIST_DIR}/install" CACHE PATH "default install path" FORCE )
+# endif()
+
+# ------------------------------------------------------------------
+# LUMI IMPLEMENTATION BEGIN
+# ------------------------------------------------------------------
+
+# ------------------------------------------------------------------
+# Enable the requested GPU language
+# ------------------------------------------------------------------
+# include(CheckLanguage)
+# if(GPU_BACKEND STREQUAL "CUDA")
+#   enable_language(CUDA)      # pulls in nvcc
+#   set(GPU_LANG CUDA)
+#   set(CMAKE_CUDA_STANDARD 17)
+#   # set(CMAKE_CXX_STANDARD 17)
+#   set(CMAKE_CUDA_ARCHITECTURES 60;70;75)
+# elseif(GPU_BACKEND STREQUAL "HIP")
+#   # enable_language(CUDA)      # pulls in nvcc
+#   # set(GPU_LANG CUDA)
+#   # set(CMAKE_CUDA_STANDARD 17)
+#   # # set(CMAKE_CXX_STANDARD 17)
+#   # set(CMAKE_CUDA_ARCHITECTURES 60;70;75)
+  
+#   find_package(hip REQUIRED CONFIG)      # <-- keep!
+#   enable_language(HIP)                   # already present
+#   set(GPU_LANG HIP)
+#   set(CMAKE_HIP_STANDARD 17)
+
+# else()                       # "NONE"  -> CPU-only build
+#   set(GPU_LANG)              # empty
+# endif()
+
 include(CheckLanguage)
-check_language(CUDA)
-if(CMAKE_CUDA_COMPILER)
-  enable_language(CUDA)
-  set(CMAKE_CXX_STANDARD 17)
-  #set(CMAKE_CUDA_ARCHITECTURES "60;70;75")
+
+if(GPU_BACKEND STREQUAL "CUDA")
+    enable_language(CUDA)
+    set(GPU_LANG CUDA)
+    set(CMAKE_CUDA_STANDARD 17)
+    # choose the SMs you really need, kept here for completeness
+    set(CMAKE_CUDA_ARCHITECTURES 60;70;75)
+elseif(GPU_BACKEND STREQUAL "HIP")
+    find_package(hip REQUIRED CONFIG) #!MAYBE NOT NEEDED IN LUMI
+    enable_language(HIP)
+    set(GPU_LANG HIP)
+    set(CMAKE_HIP_STANDARD 17)
+
+    # MI250X = gfx90a  (two chiplets per card)
+    # To override use:  -DCMAKE_HIP_ARCHITECTURES=gfx90a
+    if(NOT CMAKE_HIP_ARCHITECTURES)
+        set(CMAKE_HIP_ARCHITECTURES gfx90a)
+    endif()
 else()
-  message(STATUS "No CUDA compiler found. Still, you can run the C++ version!")
+    set(GPU_LANG)          # empty → CPU-only build
 endif()
 
-if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-  set (CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_LIST_DIR}/install" CACHE PATH "default install path" FORCE )
-endif()
+add_subdirectory(src/clue)
+
+# ------------------------------------------------------------------
+# LUMI IMPLEMENTATION END
+# ------------------------------------------------------------------
 
 include(GNUInstallDirs)
 
@@ -50,13 +124,13 @@ if(Boost_FOUND)
   message(STATUS "Boost package found!")
 endif()
 
-find_package(TBB REQUIRED)
+# find_package(TBB REQUIRED)
 if(TBB_FOUND)
   message(STATUS "TBB package found!")
 endif()
 
 add_subdirectory(clueLib)
-add_subdirectory(src)
+# add_subdirectory(src)
 
 # SOME TESTS
 enable_testing()
@@ -74,14 +148,14 @@ function(run_test_gpu target label repeats)
   endforeach()
 endfunction()
 
-if(CMAKE_CUDA_COMPILER)
-  run_test_cpu(./src/clue/main main 4)
-  run_test_cpu(./src/clue_cuda_alpaka/mainAlpakaCUDA Alpaka 4)
-  run_test_gpu(./src/clue/main CUDA 100)
-  run_test_gpu(./src/clue_cuda_alpaka/mainAlpakaCUDA AlpakaCUDA 100)
-else()
-  run_test_cpu(./src/clue_tbb_alpaka/mainAlpakaTBB TBB 4)
-endif()
+# if(CMAKE_CUDA_COMPILER)
+#   # run_test_cpu(./src/clue/main main 4)
+#   # run_test_cpu(./src/clue_cuda_alpaka/mainAlpakaCUDA Alpaka 4)
+#   run_test_gpu(./src/clue/main CUDA 100)
+#   run_test_gpu(./src/clue_cuda_alpaka/mainAlpakaCUDA AlpakaCUDA 100)
+# else()
+#   # run_test_cpu(./src/clue_tbb_alpaka/mainAlpakaTBB TBB 4)
+# endif()
 
 #--- add version files ---------------------------------------------------------
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CLUEVersion.h
@@ -97,4 +171,3 @@ install(EXPORT CLUETargets
   )
 
 message(STATUS "Finished!")
-
