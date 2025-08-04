@@ -78,23 +78,11 @@ void printTimingReport(std::vector<float> &vals, int repeats,
             << std::fixed << std::setprecision(precision) << mean << " +/- "
             << sigma << " [ms]" << std::endl;
 
-  if (label == "SUMMARY WorkDivByPoints submission copy_to_device times:") {
-    timings.emplace_back("SubmissionCopyToDevice", mean);
+  if (label == "SUMMARY WorkDivByPoints submission times:") {
+    timings.emplace_back("kernelSubmissionMean", mean);
   }     
-  else if (label == "SUMMARY WorkDivByPoints execution copy_to_device times:") {
-    timings.emplace_back("ExecutionCopyToDevice", mean);
-  }
-  else if (label == "SUMMARY WorkDivByPoints submission make_clusters times:") {
-    timings.emplace_back("SubmissionMakeClusters", mean);
-  }
-  else if (label == "SUMMARY WorkDivByPoints execution make_clusters times:") {
-    timings.emplace_back("ExecutionMakeClusters", mean);
-  }
-  else if (label == "SUMMARY WorkDivByPoints submission copy_to_host times:") {
-    timings.emplace_back("SubmissionCopyToHost", mean);
-  }
-  else if (label == "SUMMARY WorkDivByPoints execution copy_to_host times:") {
-    timings.emplace_back("ExecutionCopyToHost", mean);
+  else if (label == "SUMMARY WorkDivByPoints execution times:") {
+    timings.emplace_back("kernelExecutionMean", mean);
   }
 }
 
@@ -222,10 +210,6 @@ void mainRun(const std::string &inputFileName,
 
   vector<float> vals;
   vector<float> vals2;
-  vector<float> vals3;
-  vector<float> vals4;
-  vector<float> vals5;
-  vector<float> vals6;
 
   auto begin = std::chrono::high_resolution_clock::now();
 
@@ -267,10 +251,6 @@ void mainRun(const std::string &inputFileName,
 
     vals.clear();
     vals2.clear();
-    vals3.clear();
-    vals4.clear();
-    vals5.clear();
-    vals6.clear();
 
     begin = std::chrono::high_resolution_clock::now();
 
@@ -307,52 +287,29 @@ void mainRun(const std::string &inputFileName,
     for (unsigned r = 0; r < repeats; r++) {
       if (!clueAlgo.setPoints(x.size(), &x[0], &y[0], &layer[0], &weight[0]))
         exit(EXIT_FAILURE);
+      // measure excution time of makeClusters
       clueAlgo.Sync();
       auto start = std::chrono::high_resolution_clock::now();
       clueAlgo.copy_todevice();
+      clueAlgo.makeClusters();
+      clueAlgo.copy_tohost();
       auto finish = std::chrono::high_resolution_clock::now();
       clueAlgo.Sync();
       auto finish2 = std::chrono::high_resolution_clock::now();
-      std::chrono::duration<float> submit_copy_to_device = finish - start;
-      std::chrono::duration<float> execute_copy_to_device = finish2 - start;
-      start = std::chrono::high_resolution_clock::now();
-      clueAlgo.makeClusters(); //without size, i can get point_.n
-      finish = std::chrono::high_resolution_clock::now();
-      clueAlgo.Sync();
-      finish2 = std::chrono::high_resolution_clock::now();
-      std::chrono::duration<float> submit_make_clusters = finish - start;
-      std::chrono::duration<float> execute_make_clusters = finish2 - start;
-      start = std::chrono::high_resolution_clock::now();
-      clueAlgo.copy_tohost();
-      finish = std::chrono::high_resolution_clock::now();
-      clueAlgo.Sync();
-      finish2 = std::chrono::high_resolution_clock::now();
-      std::chrono::duration<float> submit_copy_to_host = finish - start;
-      std::chrono::duration<float> execute_copy_to_host = finish2 - start;
+      std::chrono::duration<float> submit = finish - start;
+      std::chrono::duration<float> execute = finish2 - start;
       std::cout << "Iteration " << r;
-      std::cout << " | Submission time copy_to_device: " << submit_copy_to_device.count() * 1000 << " ms\n";
-      std::cout << " | Execution time copy_to_device: " << execute_copy_to_device.count() * 1000 << " ms\n";
-      std::cout << " | Submission time make_clusters: " << submit_make_clusters.count() * 1000 << " ms\n";
-      std::cout << " | Execution time make_clusters: " << execute_make_clusters.count() * 1000 << " ms\n";
-      std::cout << " | Submission time copy_to_host: " << submit_copy_to_host.count() * 1000 << " ms\n";
-      std::cout << " | Execution time copy_to_host: " << execute_copy_to_host.count() * 1000 << " ms\n";
+      std::cout << " | Submission time: " << submit.count() * 1000 << " ms\n";
+      std::cout << " | Execution time: " << execute.count() * 1000 << " ms\n";
       // Skip first event
       if (r != 0 or repeats == 1) {
-        vals.push_back(submit_copy_to_device.count() * 1000);
-        vals2.push_back(execute_copy_to_device.count() * 1000);
-        vals3.push_back(submit_make_clusters.count() * 1000);
-        vals4.push_back(execute_make_clusters.count() * 1000);
-        vals5.push_back(submit_copy_to_host.count() * 1000);
-        vals6.push_back(execute_copy_to_host.count() * 1000);
+        vals.push_back(submit.count() * 1000);
+        vals2.push_back(execute.count() * 1000);
       }
     }
 
-    printTimingReport(vals, repeats, timings, "SUMMARY WorkDivByPoints submission copy_to_device times:");
-    printTimingReport(vals2, repeats, timings, "SUMMARY WorkDivByPoints execution copy_to_device times:");
-    printTimingReport(vals3, repeats, timings, "SUMMARY WorkDivByPoints submission make_clusters times:");
-    printTimingReport(vals4, repeats, timings, "SUMMARY WorkDivByPoints execution make_clusters times:");
-    printTimingReport(vals5, repeats, timings, "SUMMARY WorkDivByPoints submission copy_to_host times:");
-    printTimingReport(vals6, repeats, timings, "SUMMARY WorkDivByPoints execution copy_to_host times:");
+    printTimingReport(vals, repeats, timings, "SUMMARY WorkDivByPoints submission times:");
+    printTimingReport(vals2, repeats, timings, "SUMMARY WorkDivByPoints execution times:");
     
     auto begin = std::chrono::high_resolution_clock::now();
 
