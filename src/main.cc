@@ -79,10 +79,10 @@ void printTimingReport(std::vector<float> &vals, int repeats,
             << sigma << " [ms]" << std::endl;
 
   if (label == "SUMMARY WorkDivByPoints submission times:") {
-    timings.emplace_back("kernelSubmissionMean", mean);
+    timings.emplace_back("kernelSubmission", mean);
   }     
   else if (label == "SUMMARY WorkDivByPoints execution times:") {
-    timings.emplace_back("kernelExecutionMean", mean);
+    timings.emplace_back("kernelExecution", mean);
   }
 }
 
@@ -390,7 +390,7 @@ void mainRun(const std::string &inputFileName,
   }
 
   std::string run_number = argv[13];
-  std::string filename = "Results/results_classic" + run_number + ".csv";
+  std::string filename = "Results_genoa/results_classic" + run_number + ".csv";
 
   std::ofstream results(filename);
   if (!results.is_open()) {
