@@ -461,7 +461,7 @@ int main(int argc, char *argv[]) {
   bool use_accelerator = false;
   bool verbose = false;
   float dc = 20.f, rhoc = 80.f, outlierDeltaFactor = 2.f;
-  int repeats = 10;
+  int repeats = 100;
   int TBBNumberOfThread = 1;
   int opt;
   std::string inputFileName;
