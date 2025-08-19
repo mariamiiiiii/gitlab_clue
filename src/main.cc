@@ -390,7 +390,7 @@ void mainRun(const std::string &inputFileName,
   }
 
   std::string run_number = argv[13];
-  std::string filename = "Results_genoa/results_classic" + run_number + ".csv";
+  std::string filename = "Results/results_classic" + run_number + ".csv";
 
   std::ofstream results(filename);
   if (!results.is_open()) {
@@ -418,7 +418,7 @@ int main(int argc, char *argv[]) {
   bool use_accelerator = false;
   bool verbose = false;
   float dc = 20.f, rhoc = 80.f, outlierDeltaFactor = 2.f;
-  int repeats = 10;
+  int repeats = 100;
   int TBBNumberOfThread = 1;
   int opt;
   std::string inputFileName;
